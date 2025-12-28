@@ -1,10 +1,8 @@
 from fastmcp import FastMCP
 import aiosqlite
-import os
-import json
 import asyncio
+import os
 
-# Writable location on FastMCP Cloud
 DB_PATH = "/tmp/expenses.db"
 CATEGORIES_PATH = os.path.join(os.path.dirname(__file__), "categories.json")
 
@@ -28,15 +26,16 @@ async def init_db():
         await db.execute("PRAGMA journal_mode=WAL;")
         await db.commit()
 
-# Run once at startup
-asyncio.get_event_loop().run_until_complete(init_db())
+# ✅ Correct async startup hook
+@mcp.on_startup
+async def startup():
+    await init_db()
 
 # -------------------------
 # Tools
 # -------------------------
 @mcp.tool()
 async def add_expense(date: str, amount: float, category: str, subcategory: str = "", note: str = ""):
-    """Add a new expense entry."""
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
             """
@@ -51,7 +50,6 @@ async def add_expense(date: str, amount: float, category: str, subcategory: str 
 
 @mcp.tool()
 async def list_expenses(start_date: str, end_date: str):
-    """List expenses in a date range."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
@@ -69,7 +67,6 @@ async def list_expenses(start_date: str, end_date: str):
 
 @mcp.tool()
 async def summarize(start_date: str, end_date: str, category: str | None = None):
-    """Summarize expenses by category."""
     query = """
         SELECT category, SUM(amount) AS total_amount
         FROM expenses
@@ -90,21 +87,12 @@ async def summarize(start_date: str, end_date: str, category: str | None = None)
         return [dict(r) for r in rows]
 
 
-# -------------------------
-# Resource
-# -------------------------
 @mcp.resource("expense://categories", mime_type="application/json")
 async def categories():
-    async with asyncio.to_thread(open, CATEGORIES_PATH, "r", encoding="utf-8") as f:
-        return f.read()
-
-
-# -------------------------
-# Server
-# -------------------------
-if __name__ == "__main__":
-    mcp.run(
-        transport="http",
-        host="0.0.0.0",
-        port=8000
+    return await asyncio.to_thread(
+        lambda: open(CATEGORIES_PATH, "r", encoding="utf-8").read()
     )
+
+
+if __name__ == "__main__":
+    mcp.run(transport="http", host="0.0.0.0", port=8000)
